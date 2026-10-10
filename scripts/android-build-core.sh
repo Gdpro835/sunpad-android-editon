@@ -45,18 +45,39 @@ CMAKE_COMMON=(
   # SunPad hosts the runtime with its own JNI layer; Dolphin's Android app
   # JNI target ("main", copies Data/Sys via CMAKE_SOURCE_DIR) is not built.
   -DSUNPAD_NO_DOLPHIN_ANDROID_JNI=ON
-  -DCMAKE_BUILD_TYPE=Release
+  -DCMAKE_BUILD_TYPE=MinSizeRel
   -DCMAKE_POSITION_INDEPENDENT_CODE=ON
   -DENABLE_QT=OFF -DENABLE_TESTS=OFF
   -DUSE_DISCORD_PRESENCE=OFF -DUSE_MGBA=OFF
   -DUSE_RETRO_ACHIEVEMENTS=OFF -DENABLE_AUTOUPDATE=OFF
   -DENABLE_ANALYTICS=OFF -DUSE_UPNP=OFF
   -DMODERNGEKKO_ENABLE_DOLPHIN_TESTS=OFF
-  -DENABLE_CUBEB=OFF -DENABLE_VULKAN=ON
-  # EGL keeps the OpenGL ES backend buildable as a fallback renderer;
-  # SDL defaults OFF on Android (input is Pipes-only, like the iOS app).
+  # === Native SunPad Android (no full Dolphin emulator) ===
+  # Отключаем все лишние бэкенды и компоненты Dolphin: используем только
+  # легковесный OpenGL ES/EGL для максимальной совместимости со слабыми
+  # устройствами. Vulkan отключен по умолчанию, Null/Software рендереры не нужны.
+  -DENABLE_CUBEB=OFF
+  -DENABLE_VULKAN=OFF
   -DENABLE_EGL=ON
+  -DENABLE_HEADLESS=OFF
+  -DENABLE_SDL=OFF
+  -DUSE_SDL=OFF
+  # Отключаем сетевые, отладочные и прочие неиспользуемые модули, которые зря
+  # увеличивают размер нативной библиотеки и потребление памяти.
+  -DENABLE_NETPLAY=OFF
+  -DENABLE_LZO=OFF
+  -DUSE_PIPES=ON
+  -DUSE_IMGUI=OFF
+  -DUSE_IMPLOT=OFF
+  -DENABLE_PROFILING=OFF
+  -DENABLE_MEMORY_WATCHER=OFF
+  -DENABLE_FREELOOK=OFF
   -DUSE_SYSTEM_LZ4=OFF -DUSE_SYSTEM_ZSTD=OFF
+  # Оптимизации под слабые устройства: минимизируем размер кода
+  -DCMAKE_C_FLAGS="-Os -ffunction-sections -fdata-sections -fno-unwind-tables -fno-asynchronous-unwind-tables"
+  -DCMAKE_CXX_FLAGS="-Os -ffunction-sections -fdata-sections -fno-unwind-tables -fno-asynchronous-unwind-tables"
+  -DCMAKE_EXE_LINKER_FLAGS="-Wl,--gc-sections -Wl,--strip-all"
+  -DCMAKE_SHARED_LINKER_FLAGS="-Wl,--gc-sections -Wl,--strip-all"
 )
 
 echo "==> Configuring ModernGekko core for Android arm64-v8a"
@@ -151,23 +172,22 @@ echo "==> Provisioning Android app"
 mkdir -p "$GEN_DIR"
 
 # Core-critical archives: the build fails if any of these is missing.
+# Оставлены только компоненты, необходимые для нативной работы Super Mario
+# Sunshine на Android: OGL/EGL рендер, аудио OpenSL ES, ввод Pipes, DiscIO.
+# Все лишние компоненты Dolphin (Vulkan, Null/Software рендереры, сеть,
+# отладка, imgui, LZO и т.д.) исключены для уменьшения размера и памяти.
 REQUIRED_LIBS=(
   "$BUILD/libmoderngekko.a"
   "$BUILD/vendor/dolphin/Source/Core/UICommon/libuicommon.a"
   "$BUILD/vendor/dolphin/Source/Core/Core/libcore.a"
   "$BUILD/vendor/dolphin/Source/Core/DiscIO/libdiscio.a"
-  "$BUILD/vendor/dolphin/Source/Core/VideoBackends/Null/libvideonull.a"
-  "$BUILD/vendor/dolphin/Source/Core/VideoBackends/Vulkan/libvideovulkan.a"
   "$BUILD/vendor/dolphin/Source/Core/VideoBackends/OGL/libvideoogl.a"
   "$BUILD/vendor/dolphin/Source/Core/VideoCommon/libvideocommon.a"
   "$BUILD/vendor/dolphin/Source/Core/AudioCommon/libaudiocommon.a"
   "$BUILD/vendor/dolphin/Source/Core/InputCommon/libinputcommon.a"
   "$BUILD/vendor/dolphin/Source/Core/Common/libcommon.a"
   "$BUILD/vendor/dolphin/Externals/FreeSurround/libFreeSurround.a"
-  "$BUILD/vendor/dolphin/Externals/LZO/liblzo2.a"
   "$BUILD/vendor/dolphin/Externals/xxhash/libxxhash.a"
-  "$BUILD/vendor/dolphin/Externals/glslang/glslang/SPIRV/libSPIRV.a"
-  "$BUILD/vendor/dolphin/Externals/glslang/glslang/glslang/libglslang.a"
   "$BUILD/vendor/dolphin/Externals/fmt/fmt/libfmt.a"
   "$BUILD/vendor/dolphin/Externals/lz4/lz4/build/cmake/liblz4.a"
   "$BUILD/vendor/dolphin/Externals/zstd/zstd/build/cmake/lib/libzstd.a"
@@ -175,9 +195,10 @@ REQUIRED_LIBS=(
   "$BUILD/vendor/dolphin/Externals/zlib-ng/zlib-ng/libz.a"
   "$BUILD/vendor/dolphin/Externals/pugixml/pugixml/libpugixml.a"
   "$BUILD/vendor/dolphin/Externals/cpp-optparse/libcpp-optparse.a"
-  "$BUILD/vendor/dolphin/Externals/tinygltf/libtinygltf.a"
+  # Возвращаем минимально необходимые библиотеки для линковки:
+  # imgui используются в коде VideoCommon для отладочных оверлеев
+  # (SunPad их не показывает, но без них линковка падает)
   "$BUILD/vendor/dolphin/Externals/imgui/libimgui.a"
-  "$BUILD/vendor/dolphin/Externals/implot/libimplot.a"
 )
 
 # Secondary archives: included when the platform build produced them
@@ -220,11 +241,14 @@ done
 
 # Archives whose exact output name/path varies across externals versions;
 # locate them by filename inside the build tree.
+# Null и Software рендереры нужны для того, чтобы общий список бэкендов
+# в коде Dolphin собрался (мы их не используем во время работы, но без
+# них линковка падает). Vulkan полностью отключён.
 DISCOVERED_ARCHIVES=(
-  libiconv.a libvideosoftware.a libadrenotools.a libbz2.a libbz2_static.a
-  # libcharset is built as part of the vendored libiconv; linkernsbypass is
-  # the nested submodule of libadrenotools. Both are required by the link.
-  libcharset.a liblinkernsbypass.a
+  libiconv.a libbz2.a libbz2_static.a
+  libvideonull.a libvideosoftware.a
+  # libcharset is built as part of the vendored libiconv.
+  libcharset.a
 )
 # bzip2 may come from the system (libbz2-dev) via BZip2::BZip2 instead of a
 # bundled archive; in that case nothing is discovered and libdiscio already
@@ -297,17 +321,16 @@ fi
   echo "set(SUNPAD_CORE_INCLUDE_DIRS"
   # fmt (and the other externals' headers) are needed by the Dolphin core
   # headers the JNI shim includes (Log.h -> fmt/format.h etc.).
+  # Vulkan-заголовки исключены, так как бэкенд Vulkan отключен
+  # для оптимизации под слабые устройства.
   for inc in \
       "$MG/include" \
       "$MG/vendor/dolphin/Source/Core" \
       "$MG/vendor/dolphin/Source/Android" \
       "$MG/vendor/dolphin/GXRuntime/include" \
       "$MG/vendor/dolphin/Externals/fmt/fmt/include" \
-      "$MG/vendor/dolphin/Externals/enet/enet/include" \
       "$MG/vendor/dolphin/Externals/mbedtls/include" \
-      "$MG/vendor/dolphin/Externals/minizip-ng/minizip-ng" \
-      "$MG/vendor/dolphin/Externals/Vulkan-Headers/include" \
-      "$MG/vendor/dolphin/Externals/VulkanMemoryAllocator/include"; do
+      "$MG/vendor/dolphin/Externals/minizip-ng/minizip-ng"; do
     if [[ -d "$inc" ]]; then
       echo "  \"$inc\""
     fi
