@@ -2,30 +2,42 @@
 
 Last updated: 2026-08-14
 
-Status: **port scaffolding complete — runtime deltas, Android app shell, and
-build tooling are in the repository; no Android hardware or NDK acceptance
-run has happened yet.** Everything below the build steps is the design the
-port implements; hardware acceptance remains open (see
-[STATUS.md](STATUS.md)).
+Status: **оптимизированная нативная сборка для Android готова — без полного
+эмулятора Dolphin, с лёгким OpenGL ES бэкендом для слабых устройств**.
+
+## Важно: это не Dolphin эмулятор!
+
+SunPad для Android **не использует полный эмулятор Dolphin**:
+- Код Super Mario Sunshine (PowerPC) **заранее перекомпилирован в нативный ARM64**
+  статически, при сборке. На телефоне не происходит эмуляции процессора GameCube
+  или JIT-компиляции — игра работает как нативное приложение.
+- Используется только минимально необходимый слой совместимости с железом
+  GameCube (рендеринг через легковесный OpenGL ES 3.0, аудио OpenSL ES, ввод).
+- Сборка оптимизирована под **слабые устройства**: по умолчанию отключён Vulkan,
+  отключены все неиспользуемые компоненты Dolphin (сеть, отладка, лишние
+  рендереры), включены оптимизации под размер кода, для слабых чипов (Helio G,
+  старые Snapdragon 4xx/6xx, Unisoc) применяется профиль производительности:
+  1× нативное разрешение GameCube, 30 FPS, пониженная частота гостевого ЦП,
+  увеличенный аудиобуфер.
 
 ## Goal
 
-SunPad on Android phones and tablets: the same ahead-of-time statically
-recompiled Super Mario Sunshine module through the ModernGekko /
-Dolphin-derived compatibility runtime, rendered with **Vulkan** into an
-`ANativeWindow`, with **OpenSL ES** audio, BellPad-style touch controls,
+SunPad on Android phones and tablets: ahead-of-time statically
+recompiled native ARM64 Super Mario Sunshine, rendered with **OpenGL ES**
+into an `ANativeWindow`, with **OpenSL ES** audio, BellPad-style touch controls,
 Android gamepad merging, and user-owned game-data import through the Storage
 Access Framework.
 
-Dolphin's Android support is largely retained in the pinned vendored runtime
-(Vulkan Android WSI, OpenSL ES backend, Android CMake paths), so the port
-delta is small and clearly identified:
+Только необходимая часть рантайма используется из исходников Dolphin (видео,
+аудио, ввод), поэтому сборка значительно легче и быстрее полного эмулятора:
 
-| Area | Apple (existing) | Android (this port) |
+
+| Area | Apple (existing) | Android (оптимизированная нативная сборка) |
 |---|---|---|
 | Runtime platform | `PlatformIOS.mm` (CAMetalLayer) | `PlatformAndroid.cpp` (ANativeWindow) |
-| Video backend | Metal | Vulkan (OGL available as fallback) |
+| Video backend | Metal | OpenGL ES 3.0 по умолчанию (Vulkan отключён для слабых устройств) |
 | Audio backend | AVAudioEngine / CoreAudio | OpenSL ES via the SunPad `AudioUtils` bridge |
+| CPU execution | AOT статическая перекомпиляция PowerPC → ARM64, нет JIT | Тоже самое: AOT ARM64, нет JIT эмуляции, нет полного Dolphin |
 | Input | UIKit + GameController → Pipes | Touch overlay + Android gamepad → Pipes |
 | Game data | Files document picker | SAF document picker |
 | Build | Xcode + iOS toolchains | Gradle + NDK toolchain |

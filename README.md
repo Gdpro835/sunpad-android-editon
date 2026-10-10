@@ -47,7 +47,7 @@ game module.
 | Controllers | Touch and iOS GameController on mobile; keyboard or connected controller on macOS; narrow A/B/X/Y/Z physical-button remapping is implemented in source and awaiting device acceptance |
 | Settings | Live 1×–4× render scale, original 4:3 plus experimental widescreen/fill modes, and touch-layout settings |
 | Audio | Guest-timebase defect fixed; continuous desktop and Simulator audio verified; fresh physical-device audio acceptance remains |
-| Android | Port scaffold: runtime patches, Gradle app shell (Vulkan, OpenSL ES, touch + gamepad, SAF import), and NDK build tooling; no device/emulator acceptance run yet |
+| Android | Нативная ARM64 сборка (без полного эмулятора Dolphin): оптимизирована для слабых устройств, только легковесный OpenGL ES 3.0 + OpenSL ES, сенсорное управление и поддержка геймпадов, импорт через SAF. Код игры заранее перекомпилирован в ARM64, нет JIT-эмуляции процессора. |
 | Distribution | Audited unsigned Preview 2 IPA for re-signing; no game image, saves, signing material, TestFlight, or App Store release |
 
 The mobile development build has been signed, installed, and played on a

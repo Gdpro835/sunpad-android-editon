@@ -592,51 +592,38 @@ void RuntimeHost::RunGame(const fs::path& game_root,
       return;
     }
 
-    const auto try_create = [&](const char* backend) {
-      moderngekko::RuntimeConfig config;
-      config.game_root = game_root.string();
-      if (!disc_image.empty())
-        config.disc_image = disc_image.string();
-      config.user_directory = user_directory.string();
-      config.graphics.backend = backend;
-      config.headless = false;
-      config.show_fps_in_title = false;
-      config.enable_gmse01_60fps = true;
-      config.module =
-          moderngekko::ModuleSource::DynamicPath(module_path.string());
-      config.render_surface = current_surface_;
-      std::fprintf(stderr, "[sunpad] creating runtime backend=%s surface=%p %dx%d\n",
-                   backend, static_cast<void*>(current_surface_),
-                   current_surface_ ? ANativeWindow_getWidth(current_surface_) : 0,
-                   current_surface_ ? ANativeWindow_getHeight(current_surface_) : 0);
-      SunPadNativeLog("creating runtime (60 FPS)");
-      return moderngekko::Runtime::Create(std::move(config));
-    };
-
     const auto& dev = CachedDevice();
-    // Mali / MediaTek Vulkan is a common black screen. Always try GLES first
-    // on those chips; Snapdragon can still honour the user's Vulkan toggle.
-    const bool force_gles = dev.mali || dev.mediatek;
-    const char* first =
-        (force_gles || preferred_backend_ == "OGL") ? "OGL" : "Vulkan";
-    const char* second = first[0] == 'O' ? "Vulkan" : "OGL";
-    std::fprintf(stderr, "[sunpad] preferred backend=%s force_gles=%d soc=%s\n",
-                 first, force_gles ? 1 : 0, dev.tag);
-    if (force_gles)
-      SunPadNativeLog("MediaTek/Mali: forcing OpenGL ES");
-    auto created = try_create(first);
+    // Нативный SunPad для Android использует только легковесный OpenGL ES
+    // бэкенд: Vulkan полностью отключен при сборке для совместимости со
+    // слабыми устройствами (старые Mali/Adreno, MediaTek Helio и т.д.).
+    // По умолчанию 60 FPS отключен — он слишком требователен к железу,
+    // для слабых телефонов оставляем оригинальные 30 FPS GameCube.
+    const bool enable_60fps = !dev.weak && enable_60fps_;
+    moderngekko::RuntimeConfig config;
+    config.game_root = game_root.string();
+    if (!disc_image.empty())
+      config.disc_image = disc_image.string();
+    config.user_directory = user_directory.string();
+    config.graphics.backend = "OGL";
+    config.headless = false;
+    config.show_fps_in_title = false;
+    config.enable_gmse01_60fps = enable_60fps;
+    config.module =
+        moderngekko::ModuleSource::DynamicPath(module_path.string());
+    config.render_surface = current_surface_;
+    std::fprintf(stderr, "[sunpad] creating native runtime backend=OGL surface=%p %dx%d weak=%d\n",
+                 static_cast<void*>(current_surface_),
+                 current_surface_ ? ANativeWindow_getWidth(current_surface_) : 0,
+                 current_surface_ ? ANativeWindow_getHeight(current_surface_) : 0,
+                 dev.weak ? 1 : 0);
+    SunPadNativeLog(enable_60fps ? "creating native runtime (OpenGL ES, 60 FPS)"
+                                 : "creating native runtime (OpenGL ES, 30 FPS)");
+    if (dev.weak)
+      SunPadNativeLog("weak device detected: low-performance profile applied");
+    auto created = moderngekko::Runtime::Create(std::move(config));
     if (!created) {
-      const std::string first_error = created.error ? created.error->message
-                                                    : "unknown error";
-      std::fprintf(stderr, "[sunpad] %s create failed: %s; trying %s\n",
-                   first, first_error.c_str(), second);
-      created = try_create(second);
-      if (!created) {
-        const std::string second_error = created.error ? created.error->message
-                                                       : "unknown error";
-        error_message = std::string(first) + " failed (" + first_error +
-                        "); " + second + " also failed (" + second_error + ")";
-      }
+      error_message = created.error ? created.error->message
+                                    : "Could not create the game runtime.";
     }
     if (!created) {
       if (error_message.empty()) {
@@ -811,8 +798,10 @@ void RuntimeHost::SetModernCStick(bool enabled) {
 }
 
 void RuntimeHost::SetPreferredBackend(std::string backend) {
-  if (backend == "OGL" || backend == "Vulkan")
-    preferred_backend_ = std::move(backend);
+  // В нативной оптимизированной сборке всегда используется только OpenGL ES,
+  // параметр оставлен для совместимости с существующим JNI-интерфейсом.
+  preferred_backend_ = "OGL";
+  (void)backend;
 }
 
 void RuntimeHost::EnableDolphinLogs() {
@@ -844,9 +833,11 @@ void RuntimeHost::EnableDolphinLogs() {
 
 void RuntimeHost::ApplyPendingSettings() {
   const auto& dev = CachedDevice();
-  const int scale = pending_scale_ < 1 ? 1 : pending_scale_;
+  // Для слабых устройств принудительно используем нативное разрешение
+  // GameCube (1× масштаб) — это даёт максимальную производительность.
+  const int scale = dev.weak ? 1 : (pending_scale_ < 1 ? 1 : pending_scale_);
   SetCfg(Config::GFX_EFB_SCALE, scale);
-  SetCfg(Config::GFX_MAX_EFB_SCALE, 12);
+  SetCfg(Config::GFX_MAX_EFB_SCALE, dev.weak ? 1 : 4);
   // Use specialized shaders on every GPU. Uber shaders fail to link on some
   // Adreno devices and are not reliable enough for this app's fixed profile.
   SetCfg(Config::GFX_SHADER_COMPILATION_MODE,

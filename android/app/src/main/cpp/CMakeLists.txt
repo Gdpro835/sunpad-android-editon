@@ -4,7 +4,22 @@ project(sunpad_app C CXX)
 # Explicit -std=c++2b: valid on both NDK clang 17 (NDK r26, which rejects
 # -std=c++23) and clang 18+. The app code is C++20-compatible; the core
 # headers it includes are too.
-add_compile_options(-std=c++2b)
+# Оптимизация под размер кода для нативной сборки (без полного Dolphin)
+# -Os: оптимизация на размер, удаление мёртвого кода, нет таблиц исключений
+add_compile_options(
+    -std=c++2b
+    -Os
+    -ffunction-sections
+    -fdata-sections
+    -fno-unwind-tables
+    -fno-asynchronous-unwind-tables
+    -fomit-frame-pointer
+)
+add_link_options(
+    -Wl,--gc-sections
+    -Wl,--strip-all
+    -Wl,--exclude-libs,ALL
+)
 
 # Provisioned by scripts/android-build-core.sh (gitignored, host-local paths):
 #   SUNPAD_CORE_LIBS          merged ModernGekko + Dolphin core archives

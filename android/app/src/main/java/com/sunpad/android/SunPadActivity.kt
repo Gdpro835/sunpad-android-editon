@@ -29,9 +29,13 @@ import java.util.Locale
 import kotlin.math.roundToInt
 
 /**
- * SunPad Android main activity: hosts the game Surface handed to the Vulkan
- * backend, the BellPad-style touch overlay, Android gamepad merging, the
- * user-owned game-data import flow, and the settings menu.
+ * SunPad Android — нативная сборка Super Mario Sunshine для Android
+ * (без полного эмулятора Dolphin): код игры заранее перекомпилирован в
+ * ARM64, рендеринг через легковесный OpenGL ES бэкенд.
+ *
+ * SunPad Android main activity: hosts the game Surface handed to the
+ * OpenGL ES backend, the BellPad-style touch overlay, Android gamepad
+ * merging, the user-owned game-data import flow, and the settings menu.
  */
 class SunPadActivity : Activity(), SurfaceHolder.Callback {
 
@@ -129,19 +133,14 @@ class SunPadActivity : Activity(), SurfaceHolder.Callback {
         // reads that one first. The public sunpad.log still gets Java lines.
         SunPadNative.setCrashLogPath(DiagnosticLog.privateFile(this).absolutePath)
         if (prefs.getBoolean("bootInProgress", false)) {
-            prefs.edit().putBoolean("preferOgl", true).putBoolean("bootInProgress", false).commit()
-            DiagnosticLog.append(this, "Last session died during boot; preferring OpenGL ES")
+            prefs.edit().putBoolean("bootInProgress", false).commit()
+            DiagnosticLog.append(this, "Last session died during boot; applying safe native profile")
         }
-        // Mali (every MediaTek Helio/Dimensity) black-screens or crashes
-        // Dolphin Vulkan more often than Adreno. Pin GLES unless the user
-        // already survived a boot on this install.
-        if (looksLikeMaliOrMediatek() && !prefs.getBoolean("preferOgl", true)) {
-            prefs.edit().putBoolean("preferOgl", true).apply()
-            DiagnosticLog.append(this, "MediaTek/Mali GPU: forcing OpenGL ES")
-        }
-        val backend = if (prefs.getBoolean("preferOgl", true)) "OGL" else "Vulkan"
+        // Нативная сборка использует только OpenGL ES (Vulkan полностью
+        // отключен при сборке для совместимости со слабыми устройствами).
+        val backend = "OGL"
         SunPadNative.setPreferredBackend(backend)
-        DiagnosticLog.append(this, "SunPad activity created. native=${SunPadNative.available} backend=$backend ${SunPadNative.loadError ?: ""}")
+        DiagnosticLog.append(this, "SunPad native Android: native=${SunPadNative.available} backend=OpenGL ES (no full Dolphin emulator) ${SunPadNative.loadError ?: ""}")
         showPreviousCrashIfAny()
         if (!SunPadNative.available) {
             showStartError(
@@ -559,20 +558,9 @@ class SunPadActivity : Activity(), SurfaceHolder.Callback {
         items.add("Import game data (GMSE01 ISO/GCM)…")
         actions.add { pickImage() }
 
-        items.add(
-            if (prefs.getBoolean("preferOgl", true)) "Renderer: OpenGL ES"
-            else "Renderer: Vulkan")
-        actions.add {
-            val ogl = !prefs.getBoolean("preferOgl", true)
-            prefs.edit().putBoolean("preferOgl", ogl).apply()
-            SunPadNative.setPreferredBackend(if (ogl) "OGL" else "Vulkan")
-            Toast.makeText(
-                this,
-                if (ogl) "OpenGL ES on next start (close and reopen)"
-                else "Vulkan on next start (close and reopen)",
-                Toast.LENGTH_LONG,
-            ).show()
-        }
+        // Пункт переключения рендерера убран: в оптимизированной нативной
+        // сборке всегда используется только легковесный OpenGL ES, Vulkan
+        // отключён для совместимости со слабыми устройствами.
 
         items.add("Copy diagnostic log")
         actions.add { copyLogToClipboard() }

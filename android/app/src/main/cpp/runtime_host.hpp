@@ -1,10 +1,10 @@
 // Copyright 2026 SunPad project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-// Hosts the ModernGekko / Dolphin-derived compatibility runtime inside the
-// SunPad Android app: owns the game thread, the ANativeWindow render surface
-// handed to the Vulkan video backend, and the pipe-input bridge. This is the
-// C++ mirror of the iOS SunPadCoreHost.
+// Hosts the native ARM64 Super Mario Sunshine runtime inside the SunPad
+// Android app (no full Dolphin emulator): owns the game thread, the
+// ANativeWindow render surface handed to the OpenGL ES backend, and the
+// pipe-input bridge. This is the C++ mirror of the iOS SunPadCoreHost.
 
 #pragma once
 
@@ -53,7 +53,7 @@ class RuntimeHost {
   void Pause();
   void Resume();
 
-  // The Vulkan backend renders into this ANativeWindow; pass nullptr when the
+  // The OpenGL ES backend renders into this ANativeWindow; pass nullptr when the
   // surface is destroyed (the runtime is paused around that).
   void SetSurface(ANativeWindow* surface);
 
@@ -64,6 +64,7 @@ class RuntimeHost {
   void SetAspectRatioMode(AspectRatioMode mode);
   void SetModernCStick(bool enabled);
   void SetPreferredBackend(std::string backend);
+  void Set60FpsEnabled(bool enabled) { enable_60fps_ = enabled; }
 
   double CurrentFPS() const;
   double CurrentSpeed() const;
@@ -93,8 +94,11 @@ class RuntimeHost {
   uint16_t last_buttons_ = 0;
   bool modern_cstick_ = false;
   std::string preferred_backend_{"OGL"};
-  int pending_scale_ = 1;  // 1× EFB, same as official Dolphin
+  int pending_scale_ = 1;  // 1× нативное разрешение GameCube по умолчанию
   AspectRatioMode pending_aspect_ = AspectRatioMode::Original;
+  // 60 FPS отключён по умолчанию — он слишком требователен к слабым телефонам,
+  // при необходимости пользователь может включить в настройках.
+  bool enable_60fps_ = false;
   ANativeWindow* current_surface_ = nullptr;
   std::function<void(const std::string&)> on_error_;
 };
